@@ -1,0 +1,32 @@
+# Settings for yolo26_live.py. Relative paths are relative to this file.
+
+# Drone camera through the SIYI link. A video file path also works, for testing.
+source: rtsp://192.168.144.25:8554/main.264
+rtsp_transport: tcp        # tcp survives radio packet loss better than udp
+open_timeout_ms: 5000      # how long to wait before retrying a dead stream
+
+# Frames per second sent to YOLO (the camera itself sends 30).
+# Lower = less GPU load, but the tracker matches objects between frames by
+# box overlap, so if an object moves more than about half its own width
+# between two inference frames it gets a new track ID.
+# To find the minimum: lower this (or press - in the window) until the
+# "new IDs in last 60s" counter starts climbing, then go back up a step.
+inference_fps: 2
+
+models:
+  segment: weights/yolo26n-seg.pt     # detection + instance masks + tracking
+  semantic: weights/yolo26n-sem.pt    # scene classes; null to turn off
+  depth: weights/yolo26n-depth.pt     # monocular range; null to turn off
+
+imgsz: 640            # inference size for the segment model; raise for small/distant objects
+conf: 0.25            # minimum detection confidence
+classes: null         # COCO class ids to keep, e.g. [0, 2] = person, car; null = all
+tracker: bytetrack.yaml
+device: 0             # 0 = first GPU, or cpu
+
+# Multiplies the depth model's output. The model gives rough meters; to
+# calibrate, put an object at a measured distance and set
+# depth_scale = measured / shown.
+depth_scale: 1.0
+
+display_width: 1600   # total window width in pixels (2x2 grid)
