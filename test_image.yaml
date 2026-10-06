@@ -1,7 +1,7 @@
 # Settings for yolo26_live.py. Relative paths are relative to this file.
 
 # Reconfigured for Robot Dog.
-source: rtsp://192.168.123.103:8554/video1
+source: box_distance_approximation/test1.png
 rtsp_transport: tcp        # tcp survives radio packet loss better than udp
 open_timeout_ms: 5000      # how long to wait before retrying a dead stream
 
