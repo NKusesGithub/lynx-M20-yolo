@@ -1,0 +1,15 @@
+# Python packages for droneYolo2026. Install with:
+#   python3 -m pip install -r requirements.txt
+#
+# Versions are the ones the scripts were tested with. ultralytics also installs
+# PyTorch, OpenCV, NumPy, PyYAML and matplotlib. For a GPU, install the PyTorch
+# build for your CUDA version first (see pytorch.org), then this file.
+
+ultralytics==8.4.173      # YOLO26, YOLOE and SAM
+lap>=0.5.12               # the tracker in live.py
+
+# YOLOE text prompts (autolabeller.py). Ultralytics tries to install this itself
+# at the first run, but that can stop with no message.
+clip @ git+https://github.com/ultralytics/CLIP.git
+
+pytest                    # the unit tests

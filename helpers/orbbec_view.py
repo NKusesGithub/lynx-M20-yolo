@@ -14,7 +14,7 @@ apply to the M20 frame unchanged. Pixels outside the DC1 view get depth 0.
 import cv2
 import numpy as np
 
-from box_distance import scale_camera_matrix
+from helpers.box_distance import scale_camera_matrix
 
 
 class OrbbecView:

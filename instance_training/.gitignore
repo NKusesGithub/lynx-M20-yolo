@@ -1,0 +1,3 @@
+# The frames and the labels (large, and only for training; keep a backup
+# somewhere else)
+dataset/

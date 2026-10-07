@@ -1,6 +1,6 @@
 import numpy as np
 
-from orbbec_view import OrbbecView
+from helpers.orbbec_view import OrbbecView
 
 M20 = {"calib_size": [1280, 720], "dist_coeffs": [-0.291149, 0.057760, -0.006811, 0.001601, 0.0],
        "camera_matrix": [619.97674, 0, 586.32027, 0, 625.27679, 339.90312, 0, 0, 1]}

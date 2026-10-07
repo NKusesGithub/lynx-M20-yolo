@@ -5,7 +5,7 @@ instance segmentation with the distance to each box, semantic segmentation
 and (if models.depth is set) monocular depth, plus per-model inference times.
 
 With orbbec_view enabled, the depth model gets the frame re-projected into the
-Orbbec DC1 colour camera it was trained on (see orbbec_view.py).
+Orbbec DC1 colour camera it was trained on (see helpers/orbbec_view.py).
 
 Box distance comes from geometry: the box's known height (main estimate)
 cross-checked against the floor contact point. If a depth model is set, the
@@ -32,8 +32,8 @@ import yaml
 from ultralytics import YOLO
 from ultralytics.utils.plotting import colors
 
-from box_distance import BoxDistance, TrackSmoother, disagree
-from orbbec_view import OrbbecView
+from helpers.box_distance import BoxDistance, TrackSmoother, disagree
+from helpers.orbbec_view import OrbbecView
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 STATUS_HEIGHT = 72

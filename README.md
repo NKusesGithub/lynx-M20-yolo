@@ -8,8 +8,12 @@ There are two types of script:
 
 - **The live script** (`live.py`) reads the video stream from the robot
   camera. It shows the results in a window on the screen.
-- **The batch script** (`run_batch.py`) reads a video file. It writes images
-  and a CSV file to the `results/` folder.
+- **The batch script** (`run_batch.py`) reads videos and photos. It writes images,
+  a CSV file and, if you ask for it, a video with the masks to the `results/`
+  folder.
+
+The `instance_training/` folder has the scripts to label a video
+automatically and to train our tools model.
 
 The camera driver and the recorder for depth training data are in a
 different repository, `m20-orbbec`.
@@ -36,16 +40,20 @@ computer.
 2. Install the Python packages:
 
    ```bash
-   python3 -m pip install ultralytics "lap>=0.5.12" pytest
+   python3 -m pip install -r requirements.txt
    ```
 
    The `ultralytics` package also installs PyTorch, OpenCV and the other
-   packages that YOLO needs. The tracker needs the `lap` package. The unit
-   tests need the `pytest` package.
+   packages that YOLO needs. The tracker needs the `lap` package. The
+   labelling scripts need the `clip` package. The unit tests need the
+   `pytest` package.
 
-3. Make sure that `weights/shiwei.pt` and `weights/dog_depth.pt` are in the
-   folder. These are our own models. Ultralytics cannot download them again.
-   Keep a backup copy of them.
+   For a GPU, install the PyTorch build for your CUDA version first. See
+   pytorch.org. Then install `requirements.txt`.
+
+3. Make sure that `weights/shiwei.pt`, `weights/dog_depth.pt` and
+   `weights/tools_seg.pt` are in the folder. These are our own models.
+   Ultralytics cannot download them again. Keep a backup copy of them.
 
 4. Run all scripts from the `droneYolo2026` folder.
 
@@ -55,14 +63,16 @@ computer.
 |---|---|
 | `live.py` | The live script. |
 | `live_config.yaml` | The settings for `live.py`. |
-| `box_distance.py` | Calculates the distance to a box from its known height. `live.py` uses it. |
-| `orbbec_view.py` | Changes a frame from the robot camera into the view of the Orbbec camera, for the depth model. `live.py` uses it. |
+| `requirements.txt` | The Python packages. See "Set up". |
 | `run_batch.py` | The batch script. |
-| `plot_detections.py` | Makes a chart from the CSV file of a batch run. |
+| `batch_config.yaml` | The settings for `run_batch.py`. |
+| `plot_detections.py` | Makes a chart of the detections in each frame from the CSV file of a batch run. |
+| `helpers/` | The modules that `live.py` uses. `box_distance.py` calculates the distance to a box from its known height. `orbbec_view.py` changes a frame from the robot camera into the view of the Orbbec camera, for the depth model. You do not run them yourself. |
 | `depth_training/` | The scripts to train the depth model. See `depth_training/README.md`. |
+| `instance_training/` | The scripts to label a video and train the tools model. See `instance_training/README.md`. |
 | `weights/` | The model files. |
-| `docs/` | `BOX_DISTANCE.md` (box distance setup and calibration) and the task description for the box distance. |
-| `samples/` | Test images. |
+| `docs/` | `BATCH.md` (the batch script), `BOX_DISTANCE.md` (box distance setup and calibration) and the task description for the box distance. |
+| `samples/` | Test images and videos. `IMG_6678.mp4` is the video of the tools that `tools_seg.pt` is trained on. |
 | `tests/` | The unit tests. |
 | `results/` | The output of the scripts and of training. It is not in Git. |
 
@@ -73,11 +83,15 @@ The model files are in the `weights/` folder.
 | File | Task | What it is |
 |---|---|---|
 | `shiwei.pt` | Instance segmentation | Our box model. It has 1 class: `box`. `live.py` uses it. |
+| `tools_seg.pt` | Instance segmentation | Our tools model. It has 6 classes: `screwdriver`, `drill`, `pliers`, `case`, `scissors` and `object`. See `instance_training/README.md`. |
 | `dog_depth.pt` | Depth | Our depth model. It is trained on the Orbbec DC1 camera and gives the distance in metres. `live.py` uses it. |
 | `yolo26n-seg.pt` | Instance segmentation | The Ultralytics model with the 80 COCO classes. |
 | `yolo26n-sem.pt` | Semantic segmentation | A class for each pixel, for example road, sky or person. |
 | `yolo26n-depth.pt` | Depth | The Ultralytics depth model before our training. |
 | `yolo26n.pt` | Detection | The Ultralytics model with the 80 COCO classes. |
+| `yoloe-26l-seg.pt` | Instance segmentation | YOLOE. It finds objects from a text description. `instance_training/autolabeller.py` uses it. |
+| `yoloe-26l-seg-pf.pt` | Instance segmentation | YOLOE without text. It finds all items. `instance_training/label_unknown.py` uses it. |
+| `sam_b.pt` | Segmentation | SAM. It makes a mask from a box. The two labelling scripts use it. |
 
 The letter after the version number gives the size of the model. `n` (nano)
 is the smallest and fastest. `x` (extra large) is the slowest and most
@@ -85,12 +99,16 @@ accurate.
 
 If a model file is not in `weights/`, Ultralytics downloads it from GitHub.
 This occurs only for the official Ultralytics file names, for example
-`yolo26n-seg.pt`. Ultralytics cannot download `shiwei.pt` or
-`dog_depth.pt`.
+`yolo26n-seg.pt`. Ultralytics cannot download `shiwei.pt`, `dog_depth.pt`
+or `tools_seg.pt`.
 
 After you train a new depth model, copy `best.pt` from the results folder
 into `weights/` with a clear name. Then set `models: depth:` in
 `live_config.yaml` to that file.
+
+To find the tools in place of the boxes, set `models: segment:` in
+`live_config.yaml` to `weights/tools_seg.pt`. The box distance does not work
+with this model, because it has no `box` class.
 
 ## The live script
 
@@ -207,79 +225,26 @@ not correct for the Orbbec view off.
 
 ## The batch script
 
-1. Put the video file in the `video/` folder.
-2. Start the script:
-
-   ```bash
-   python3 run_batch.py --video video/my_clip.mp4
-   ```
-
-3. Find the results in `results/yolo26/`.
-4. To make a chart of the results:
-
-   ```bash
-   python3 plot_detections.py --run yolo26
-   ```
-
-To compare with YOLO11, use `--family yolo11`. The results go to
-`results/yolo11/`. YOLO11 has no semantic segmentation model and no depth
-model, so the script uses the YOLO26 models for these two tasks.
-
-### Options
-
-| Option | Default value | Meaning |
-|---|---|---|
-| `--family` | `yolo26` | The models for detection and instance segmentation: `yolo26` or `yolo11`. |
-| `--video` | `video/wilderbeast.mp4` | The input video. |
-| `--out-dir` | `results/<family>` | The folder for the results. |
-| `--fps` | `1.0` | The number of frames for each second that go to YOLO. |
-| `--conf` | `0.15` | The minimum confidence for detection and instance segmentation. |
-| `--imgsz` | `640` | The image size for the model. This has the largest effect on small and far objects. |
-| `--max-det` | `300` | The maximum number of objects in each frame. |
-| `--clean` | Off | Delete the old images in the results folder before the run. |
-| `--detect-weights` | `weights/<family>x.pt` | The detection model. It changes only the panel images. |
-| `--seg-weights` | `weights/<family>x-seg.pt` | The instance segmentation model. It gives the boxes, the CSV file and the range values. |
-| `--sem-weights` | `weights/yolo26x-sem.pt` | The semantic segmentation model. |
-| `--depth-weights` | `weights/yolo26x-depth.pt` | The depth model. |
-
-The `x` models are large. Ultralytics downloads them at the first run. To
-make a run faster, use the nano models, for example
-`--seg-weights weights/yolo26n-seg.pt`.
-
-### Results of a batch run
-
-| File | Contents |
-|---|---|
-| `annotated/frame_XXXXX.jpg` | The frame with a mask, a box and a label on each object. |
-| `panels/frame_XXXXX_panel.jpg` | 4 views of the frame: detection, instance segmentation, semantic segmentation and depth. |
-| `detections.csv` | One row for each object in each frame. It gives the class, the confidence, the box, the mask area and the range. |
-| `detections_per_frame.png` | The chart from `plot_detections.py`. |
-
-The script writes a new `detections.csv` for each run. It does not delete
-the old images. To delete the old images before the run, use `--clean`.
-
-### Settings for many small objects
-
-At `--imgsz 640`, the models do not find small objects in a large image. Use
-a larger image size and a lower confidence:
+`run_batch.py` reads videos and photos and writes images and a CSV file to
+`results/`. The settings are in `batch_config.yaml`. A command-line option
+has priority over the file:
 
 ```bash
-python3 run_batch.py --imgsz 2560 --conf 0.05 --max-det 2000
+python3 run_batch.py                              # the settings in the file
+python3 run_batch.py --source samples/           # all videos and photos in a folder
 ```
 
-The table gives the results on one frame with a dense herd. All runs used
-`--conf 0.05`.
+- To also get a video with the masks, add `--save-video`.
+- To make a chart of the results, run `python3 plot_detections.py`.
 
-| Model | `--imgsz` | Detections |
-|---|---|---|
-| yolo26n | 640 | 0 |
-| yolo26n | 1280 | 2 |
-| yolo26n | 1920 | 82 |
-| yolo26n | 2560 | 258 |
-| yolo26x | 1920 | 178 |
-| yolo26x | 2560 | 319 |
+See `docs/BATCH.md` for the options, the results, the video and the settings
+for many small objects.
 
-The image size has a larger effect than the model size.
+## Training
+
+- To train the depth model, see `depth_training/README.md`.
+- To label a video and train the tools model, see
+  `instance_training/README.md`.
 
 ## Tests
 
@@ -294,6 +259,8 @@ loading. If they load, pytest fails before any test runs.
 
 - **The COCO models have no box class.** They give the name of the nearest
   COCO class. Use `shiwei.pt` for boxes.
+- **`tools_seg.pt` is trained on one video.** It works well in that place,
+  but less well in a new place. See `instance_training/README.md`.
 - **The batch script does not filter the classes.** The results include
   persons, cars and other COCO classes.
 - **The semantic model knows only road scene classes.** It gives only the

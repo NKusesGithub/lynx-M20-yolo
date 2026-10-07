@@ -2,7 +2,7 @@
 
 `live.py` shows the distance to each detected box in metres.
 The main value uses geometry only. A depth model can be added as a third
-value (see below). The code is in `box_distance.py` and
+value (see below). The code is in `helpers/box_distance.py` and
 the settings are under `box_distance:` in `live_config.yaml`.
 
 - **Main value**: `fy * box_height_m / pixel_height`. This is the straight-line

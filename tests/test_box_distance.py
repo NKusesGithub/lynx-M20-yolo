@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from box_distance import (BoxDistance, TrackSmoother, disagree, floor_distance,
+from helpers.box_distance import (BoxDistance, TrackSmoother, disagree, floor_distance,
                           height_distance, mask_top_bottom, touches_edge)
 
 CFG = {

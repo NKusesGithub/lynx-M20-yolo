@@ -1,0 +1,29 @@
+# Settings for run_batch.py. Relative paths are relative to this file.
+# Each setting can also be given on the command line, e.g. --fps 5, which wins
+# over this file. Pick another file with --config.
+
+source: samples/IMG_6679.mp4   # a video, a photo, or a folder of videos and photos
+out_dir: null            # null = results/<family>
+family: yolo26           # detection + instance segmentation models: yolo26 or yolo11
+
+fps: 30.0                 # frames per second that go to YOLO; 30 = every frame
+conf: 0.15               # minimum confidence for detection and instance segmentation
+imgsz: 640               # inference size; the biggest lever for small or far objects
+max_det: 300             # most objects per frame; raise it for large herds
+
+clean: false             # delete the old images in out_dir before the run
+save_video: true        # also write annotated.mp4 and panels.mp4
+
+# Models.
+# seg_weights is the instance segmentation model: it gives the masks, the CSV
+# file and annotated.mp4. tools_seg.pt is our tools model (best.pt from
+# instance_training, epoch 68). null = weights/<family>x-seg.pt (COCO).
+seg_weights: weights/tools_seg.pt
+# Detection model, only for the "Detection" view in the panels.
+# auto = weights/<family>x.pt (COCO, downloads about 110 MB the first time).
+# null switches it off.
+detect_weights: null
+# YOLO11 has no semantic or depth models, so these stay on YOLO26 for both families.
+# null switches the model off.
+sem_weights: null
+depth_weights: null

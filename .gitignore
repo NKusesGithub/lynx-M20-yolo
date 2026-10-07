@@ -6,3 +6,15 @@ __pycache__/
 # to keep into weights/ under a clear name.
 results/
 runs/
+
+# Models that Ultralytics downloads again by itself (large)
+weights/sam_b.pt
+weights/yoloe-*.pt
+weights/mobileclip*.ts
+weights/*x.pt
+weights/*x-*.pt
+# Unfinished downloads
+weights/.*.part
+
+# Videos are large; keep them outside Git
+samples/*.mp4
