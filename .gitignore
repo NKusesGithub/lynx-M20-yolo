@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Output of the scripts and of training runs. Copy a trained model you want
+# to keep into weights/ under a clear name.
+results/
+runs/

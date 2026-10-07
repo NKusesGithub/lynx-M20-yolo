@@ -1,22 +1,25 @@
 # droneYolo2026
 
-This folder contains Python scripts that use YOLO models from Ultralytics.
-The scripts find objects in video. Some scripts also calculate the distance
-from the camera to the objects.
+This repository contains Python scripts that use YOLO models from
+Ultralytics. The scripts find objects in the video from the M20 robot dog
+and calculate the distance to the objects.
 
 There are two types of script:
 
-- **Batch scripts** read a video file. They write images, a CSV file and a
-  chart to the `results/` folder.
-- **Live scripts** read the video stream from the robot camera. They show the
-  results in a window on the screen.
+- **The live script** (`live.py`) reads the video stream from the robot
+  camera. It shows the results in a window on the screen.
+- **The batch script** (`run_batch.py`) reads a video file. It writes images
+  and a CSV file to the `results/` folder.
+
+The camera driver and the recorder for depth training data are in a
+different repository, `m20-orbbec`.
 
 ## Quick start
 
 1. Open a terminal.
 2. Go to the `droneYolo2026` folder.
 3. Activate the Python environment: `conda activate camera`.
-4. Start the live script: `python3 yolo26_live.py`.
+4. Start the live script: `python3 live.py`.
 5. To stop the script, push the `q` key.
 
 Do the steps in "Set up" one time before you use the scripts on a new
@@ -40,74 +43,68 @@ computer.
    packages that YOLO needs. The tracker needs the `lap` package. The unit
    tests need the `pytest` package.
 
-3. Make sure that the file `weights/best.pt` is in the folder. This is the
-   box model. Ultralytics cannot download it again. Keep a backup copy of it.
+3. Make sure that `weights/shiwei.pt` and `weights/dog_depth.pt` are in the
+   folder. These are our own models. Ultralytics cannot download them again.
+   Keep a backup copy of them.
 
-4. Run all scripts from the `droneYolo2026` folder. The scripts find the
-   models and the video files from this folder.
+4. Run all scripts from the `droneYolo2026` folder.
 
-## The scripts
+## The files
 
-| File | Input | What it does | Output |
-|---|---|---|---|
-| `run_yolo26.py` | Video file | Runs 4 YOLO26 models on the video: detection, instance segmentation, semantic segmentation and depth. | `results/yolo26/` |
-| `run_yolo11.py` | Video file | Does the same as `run_yolo26.py`, but uses YOLO11 for detection and instance segmentation. Use it to compare YOLO11 with YOLO26. | `results/yolo11/` |
-| `plot_detections.py` | `detections.csv` | Makes a bar chart. The chart shows the number of objects in each frame, for each class. | A PNG file in the results folder |
-| `yolo26_live.py` | Robot camera stream | Shows a window with 4 views: tracking, instance segmentation, semantic segmentation and depth. | Window. Push `s` to save an image. |
-| `box_distance_approximation/yolo26_live_depthseg.py` | Robot camera stream | Shows a window with 3 views. It calculates the distance to each box from the known height of the box. | Window. Push `s` to save an image. |
-
-YOLO11 has no semantic segmentation model and no depth model. For this
-reason, `run_yolo11.py` uses the YOLO26 models for these two tasks.
+| File or folder | What it is |
+|---|---|
+| `live.py` | The live script. |
+| `live_config.yaml` | The settings for `live.py`. |
+| `box_distance.py` | Calculates the distance to a box from its known height. `live.py` uses it. |
+| `orbbec_view.py` | Changes a frame from the robot camera into the view of the Orbbec camera, for the depth model. `live.py` uses it. |
+| `run_batch.py` | The batch script. |
+| `plot_detections.py` | Makes a chart from the CSV file of a batch run. |
+| `depth_training/` | The scripts to train the depth model. See `depth_training/README.md`. |
+| `weights/` | The model files. |
+| `docs/` | `BOX_DISTANCE.md` (box distance setup and calibration) and the task description for the box distance. |
+| `samples/` | Test images. |
+| `tests/` | The unit tests. |
+| `results/` | The output of the scripts and of training. It is not in Git. |
 
 ## The models
 
-The model files are in the `weights/` folder. Each model does one task.
+The model files are in the `weights/` folder.
 
-| Task | What the model gives | Model files |
+| File | Task | What it is |
 |---|---|---|
-| Detection | A box around each object, with a class name | `yolo26x.pt`, `yolo11x.pt` |
-| Instance segmentation | A box and a pixel mask for each object. The mask separates objects that touch. | `yolo26x-seg.pt`, `yolo26n-seg.pt`, `yolo11x-seg.pt`, `best.pt` |
-| Semantic segmentation | A class for each pixel of the image, for example road, sky or person | `yolo26x-sem.pt`, `yolo26n-sem.pt` |
-| Depth | A relative distance for each pixel of the image | `yolo26x-depth.pt`, `yolo26n-depth.pt` |
+| `shiwei.pt` | Instance segmentation | Our box model. It has 1 class: `box`. `live.py` uses it. |
+| `dog_depth.pt` | Depth | Our depth model. It is trained on the Orbbec DC1 camera and gives the distance in metres. `live.py` uses it. |
+| `yolo26n-seg.pt` | Instance segmentation | The Ultralytics model with the 80 COCO classes. |
+| `yolo26n-sem.pt` | Semantic segmentation | A class for each pixel, for example road, sky or person. |
+| `yolo26n-depth.pt` | Depth | The Ultralytics depth model before our training. |
+| `yolo26n.pt` | Detection | The Ultralytics model with the 80 COCO classes. |
 
-### Model sizes
-
-The letter after the version number gives the size of the model:
-
-- `n` is nano. It is the smallest and fastest model. It is not good at
-  small or far objects.
-- `s` is small.
-- `x` is extra large. It is the slowest and most accurate model.
-
-### The box model
-
-`best.pt` is a custom instance segmentation model. It has 1 class: `box`.
-The live scripts use it. The other models use the 80 COCO classes. The COCO
-classes do not include a box class.
-
-### Automatic download of models
+The letter after the version number gives the size of the model. `n` (nano)
+is the smallest and fastest. `x` (extra large) is the slowest and most
+accurate.
 
 If a model file is not in `weights/`, Ultralytics downloads it from GitHub.
 This occurs only for the official Ultralytics file names, for example
-`yolo26n-seg.pt`. Ultralytics cannot download `best.pt`.
+`yolo26n-seg.pt`. Ultralytics cannot download `shiwei.pt` or
+`dog_depth.pt`.
 
-The `x` models are large. The first run of a batch script can be slow
-because of the download.
+After you train a new depth model, copy `best.pt` from the results folder
+into `weights/` with a clear name. Then set `models: depth:` in
+`live_config.yaml` to that file.
 
-## Live video
+## The live script
 
-The live scripts read their settings from `live_config.yaml`. The table
-gives the most important settings.
+`live.py` shows 3 or 4 views:
 
-| Setting | Meaning |
+| View | What it shows |
 |---|---|
-| `source` | The address of the video stream. You can also use a video file or an image file. |
-| `inference_fps` | The number of frames for each second that go to YOLO. The camera sends 30. |
-| `models` | The model files. To stop the semantic model or the depth model, set its value to `null`. |
-| `imgsz` | The image size for the model. A larger value finds smaller objects, but it is slower. |
-| `conf` | The minimum confidence. The script does not show objects with a lower confidence. |
-| `device` | `0` uses the first GPU. `cpu` uses the CPU. |
-| `display_width` | The width of the window in pixels. |
+| Tracking | A box, a track ID and the distance for each object. |
+| Instances + distance | The mask of each object. For a box, the distance from the box height, from the floor and from the depth model. |
+| Semantic segmentation | The scene class of each pixel. Only when `models: semantic:` is set. |
+| Monocular depth | The depth map. Only when `models: depth:` is set. |
+
+A red label with `?` means that the distances for one box do not agree. See
+`docs/BOX_DISTANCE.md`.
 
 ### Start the live script
 
@@ -117,14 +114,24 @@ gives the most important settings.
 3. Start the script:
 
    ```bash
-   python3 yolo26_live.py
+   python3 live.py
    ```
 
-4. To use a different settings file, start the script with `--config`:
+To use a video file or an image in place of the stream, give `--source`:
 
-   ```bash
-   python3 yolo26_live.py --config test_image.yaml
-   ```
+```bash
+python3 live.py --source samples/test1.png
+```
+
+Use an image from the front camera of the robot. With an image from a
+different camera, the box distance and the Orbbec view are not correct. To
+get one frame from the robot:
+
+```bash
+ffmpeg -rtsp_transport tcp -i rtsp://192.168.123.103:8554/video1 -frames:v 1 frame.png
+```
+
+To use a different settings file, give `--config`.
 
 ### Keys in the live window
 
@@ -134,6 +141,25 @@ gives the most important settings.
 | `+` | Increase `inference_fps`. |
 | `-` | Decrease `inference_fps`. |
 | `s` | Save an image of the window to `results/live/`. |
+| `o` | Switch the Orbbec view for the depth model on or off. |
+
+### The settings
+
+The settings are in `live_config.yaml`.
+
+| Setting | Meaning |
+|---|---|
+| `source` | The address of the video stream. |
+| `inference_fps` | The number of frames for each second that go to YOLO. The camera sends 30. |
+| `models` | The model files. To stop the semantic model or the depth model, set its value to `null`. |
+| `imgsz` | The image size for the box model. A larger value finds smaller objects, but it is slower. |
+| `conf` | The minimum confidence. The script does not show objects with a lower confidence. |
+| `device` | `0` uses the first GPU. `cpu` uses the CPU. |
+| `depth_scale` | A correction factor for the depth model. |
+| `display_width` | The width of the window in pixels. |
+| `box_distance` | The settings for the box distance. See `docs/BOX_DISTANCE.md`. |
+| `camera` | The calibration of the robot camera. |
+| `orbbec_view` | The settings for the Orbbec view. See below. |
 
 ### Find the lowest inference fps
 
@@ -147,98 +173,78 @@ too low, an object that moves gets a new ID.
 4. When this number increases, push `+` one time.
 5. Write this fps value in `inference_fps` in `live_config.yaml`.
 
-### Distance from the depth model
+## The Orbbec view
 
-`yolo26_live.py` gets the distance to an object from the depth model. The
-distance is the median depth value in the mask of the object. This value is
-not calibrated.
+`dog_depth.pt` learned the lens of the Orbbec DC1 colour camera. The robot
+camera has a wider view: about 92 degrees, and the DC1 has about 66 degrees.
+On the robot camera, objects look smaller than the model expects. For this
+reason, the model gives distances that are too far.
 
-1. Put an object at a measured distance from the camera.
-2. Read the distance that the window shows.
-3. Set `depth_scale` to the measured distance divided by the shown distance.
+The Orbbec view corrects this. Before the depth model, `live.py` removes the
+lens distortion of the robot camera. Then it cuts the frame to the view and
+the size of the DC1. The depth model then sees the objects at the size that
+it learned. Only the depth model gets this frame. The box model gets the full
+frame.
 
-## Box distance
+- The DC1 view is narrower than the robot camera. Objects near the left and
+  right edges get no depth. The depth view shows these areas in black.
+- To switch the Orbbec view on and off, push `o` in the window. To set the
+  default, change `orbbec_view: enabled:` in `live_config.yaml`.
+- Use the Orbbec view only with a depth model that was trained on the DC1.
+  For `yolo26n-depth.pt`, switch it off.
 
-`box_distance_approximation/yolo26_live_depthseg.py` does not use a depth
-model. It calculates the distance to each box from the real height of the
-box and the camera calibration. This method is more accurate than the depth
-model.
+### Calibrate the depth distance
 
-The settings are in the `box_distance` section of `live_config.yaml`.
-Measure `camera_height_m` and `camera_pitch_deg` before you use the script.
-Their values now are only estimates.
+1. Put a box at a measured distance in front of the robot camera, for
+   example 1 m.
+2. Read the depth distance in the window.
+3. Do steps 1 and 2 again at 2 m and 3 m.
+4. If the error is about the same percentage at all distances, set
+   `depth_scale` to the measured distance divided by the shown distance.
 
-Start the script from the `droneYolo2026` folder:
+Do this with the Orbbec view on. A `depth_scale` for the Orbbec view on is
+not correct for the Orbbec view off.
 
-```bash
-python3 box_distance_approximation/yolo26_live_depthseg.py --config live_config.yaml
-```
-
-You must give `--config`, because the script and `live_config.yaml` are in
-different folders.
-
-To use an image in place of the camera stream, use `test_image.yaml`:
-
-```bash
-python3 box_distance_approximation/yolo26_live_depthseg.py --config test_image.yaml
-```
-
-Use an image from the front camera of the robot. An image from a different
-camera gives incorrect distances.
-
-`box_distance_approximation/BOX_DISTANCE.md` gives the full procedure for
-the settings and for an accuracy check with a tape measure.
-
-## Batch scripts
-
-### Run a batch script
+## The batch script
 
 1. Put the video file in the `video/` folder.
 2. Start the script:
 
    ```bash
-   python3 run_yolo26.py --video video/my_clip.mp4
+   python3 run_batch.py --video video/my_clip.mp4
    ```
 
 3. Find the results in `results/yolo26/`.
-4. To make a chart of the results, start `plot_detections.py`:
+4. To make a chart of the results:
 
    ```bash
    python3 plot_detections.py --run yolo26
    ```
 
-For YOLO11, use `run_yolo11.py`. Its results go to `results/yolo11/`. To make
-its chart, use `--run yolo11`.
+To compare with YOLO11, use `--family yolo11`. The results go to
+`results/yolo11/`. YOLO11 has no semantic segmentation model and no depth
+model, so the script uses the YOLO26 models for these two tasks.
 
-### Options for the batch scripts
-
-`run_yolo26.py` and `run_yolo11.py` have the same options.
+### Options
 
 | Option | Default value | Meaning |
 |---|---|---|
+| `--family` | `yolo26` | The models for detection and instance segmentation: `yolo26` or `yolo11`. |
 | `--video` | `video/wilderbeast.mp4` | The input video. |
-| `--out-dir` | `results/yolo26` or `results/yolo11` | The folder for the results. |
+| `--out-dir` | `results/<family>` | The folder for the results. |
 | `--fps` | `1.0` | The number of frames for each second that go to YOLO. |
 | `--conf` | `0.15` | The minimum confidence for detection and instance segmentation. |
 | `--imgsz` | `640` | The image size for the model. This has the largest effect on small and far objects. |
 | `--max-det` | `300` | The maximum number of objects in each frame. |
 | `--clean` | Off | Delete the old images in the results folder before the run. |
-| `--detect-weights` | `weights/yolo26x.pt` | The detection model. It changes only the panel images. |
-| `--seg-weights` | `weights/yolo26x-seg.pt` | The instance segmentation model. It gives the boxes, the CSV file and the range values. |
+| `--detect-weights` | `weights/<family>x.pt` | The detection model. It changes only the panel images. |
+| `--seg-weights` | `weights/<family>x-seg.pt` | The instance segmentation model. It gives the boxes, the CSV file and the range values. |
 | `--sem-weights` | `weights/yolo26x-sem.pt` | The semantic segmentation model. |
 | `--depth-weights` | `weights/yolo26x-depth.pt` | The depth model. |
 
-For `run_yolo11.py`, the default detection model is `weights/yolo11x.pt`. The
-default instance segmentation model is `weights/yolo11x-seg.pt`.
-
-The instance segmentation model gives the results in the CSV file. If you
-change only `--detect-weights`, the CSV file does not change.
-
-To make a run faster, use the nano model:
-
-```bash
-python3 run_yolo26.py --seg-weights weights/yolo26n-seg.pt
-```
+The `x` models are large. Ultralytics downloads them at the first run. To
+make a run faster, use the nano models, for example
+`--seg-weights weights/yolo26n-seg.pt`.
 
 ### Results of a batch run
 
@@ -250,16 +256,15 @@ python3 run_yolo26.py --seg-weights weights/yolo26n-seg.pt
 | `detections_per_frame.png` | The chart from `plot_detections.py`. |
 
 The script writes a new `detections.csv` for each run. It does not delete
-the old images. If you change `--fps`, old images stay in the folder. To
-delete the old images before the run, use `--clean`.
+the old images. To delete the old images before the run, use `--clean`.
 
 ### Settings for many small objects
 
-At `--imgsz 640`, the models do not find small objects in a large image. For
-a dense herd, use a larger image size and a lower confidence:
+At `--imgsz 640`, the models do not find small objects in a large image. Use
+a larger image size and a lower confidence:
 
 ```bash
-python3 run_yolo26.py --imgsz 2560 --conf 0.05 --max-det 2000
+python3 run_batch.py --imgsz 2560 --conf 0.05 --max-det 2000
 ```
 
 The table gives the results on one frame with a dense herd. All runs used
@@ -274,20 +279,24 @@ The table gives the results on one frame with a dense herd. All runs used
 | yolo26x | 1920 | 178 |
 | yolo26x | 2560 | 319 |
 
-The image size has a larger effect than the model size. A large model at a
-large image size is much slower. For a first run, use a low `--fps`.
+The image size has a larger effect than the model size.
+
+## Tests
+
+```bash
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest
+```
+
+`PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` stops the ROS pytest plugins from
+loading. If they load, pytest fails before any test runs.
 
 ## Limits
 
-- **The COCO models have no wildebeest class and no box class.** The models
-  give the name of the nearest COCO class, for example `cow` or `elephant`.
-  Use the label only to know that an object is there.
-- **The batch scripts do not filter the classes.** The results include
-  persons, cars and other COCO classes. The terminal shows the number of
-  objects for each class.
-- **The semantic model knows only road scene classes.** It has no animal
-  class and no box class. It gives only the general scene, for example road
-  or sky.
-- **The depth model gives relative values, not meters.** Use the values to
-  find which object is nearer. For a box distance in meters, use
-  `yolo26_live_depthseg.py`.
+- **The COCO models have no box class.** They give the name of the nearest
+  COCO class. Use `shiwei.pt` for boxes.
+- **The batch script does not filter the classes.** The results include
+  persons, cars and other COCO classes.
+- **The semantic model knows only road scene classes.** It gives only the
+  general scene, for example road or sky.
+- **`yolo26n-depth.pt` gives relative values, not metres.** Use
+  `dog_depth.pt`, or the box distance, for distances in metres.

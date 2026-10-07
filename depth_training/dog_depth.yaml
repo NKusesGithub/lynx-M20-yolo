@@ -1,0 +1,12 @@
+# Ultralytics depth dataset: Orbbec Dabai DC1 colour + aligned depth, recorded
+# with record_rgbd.py from the m20-orbbec repo. train_depth.py resolves `path` relative to this file.
+path: dataset
+train: images/train
+val: images/val
+
+nc: 1
+names:
+  0: depth
+
+depth_scale: 1000   # PNG units per metre: the Orbbec gives millimetres
+max_depth: 5.0      # metres; the DC1 is unreliable beyond this, so val metrics ignore it

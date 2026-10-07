@@ -1,0 +1,4 @@
+# Recorded images and depth maps (large; keep a backup somewhere else)
+dataset/
+# Written by train_depth.py on each run
+*.resolved.yaml

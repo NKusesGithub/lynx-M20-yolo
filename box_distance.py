@@ -1,7 +1,7 @@
 """
 Distance to upright boxes from geometry alone: the box's known real height
 (main estimate) and the floor contact point (cross-check). No depth model.
-See BOX_DISTANCE.md for setup and calibration.
+See docs/BOX_DISTANCE.md for setup and calibration.
 """
 
 import math
@@ -9,6 +9,15 @@ from collections import defaultdict, deque
 
 import cv2
 import numpy as np
+
+
+def scale_camera_matrix(camera_matrix, calib_size, frame_size):
+    """K for frame_size, from a K calibrated at calib_size."""
+    K = np.array(camera_matrix, np.float64).reshape(3, 3)
+    (cw, ch), (w, h) = calib_size, frame_size
+    K[0] *= w / cw
+    K[1] *= h / ch
+    return K
 
 
 def height_distance(pixel_height, fy, box_height_m):
@@ -77,16 +86,14 @@ class BoxDistance:
 
     def __init__(self, cfg, frame_size):
         self.cfg = cfg
-        self.K = np.array(cfg["camera_matrix"], np.float64).reshape(3, 3)
-        self.D = np.array(cfg["dist_coeffs"], np.float64)
         # K is only valid at the calibration resolution; scale it if the
         # stream comes in at another size.
-        cw, ch = cfg.get("calib_size", [1280, 720])
-        w, h = frame_size
-        if (w, h) != (cw, ch):
-            print(f"[distance] frame is {w}x{h}, calibration is {cw}x{ch}: scaling K")
-            self.K[0] *= w / cw
-            self.K[1] *= h / ch
+        calib_size = cfg.get("calib_size", [1280, 720])
+        if tuple(frame_size) != tuple(calib_size):
+            print(f"[distance] frame is {frame_size[0]}x{frame_size[1]}, "
+                  f"calibration is {calib_size[0]}x{calib_size[1]}: scaling K")
+        self.K = scale_camera_matrix(cfg["camera_matrix"], calib_size, frame_size)
+        self.D = np.array(cfg["dist_coeffs"], np.float64)
         self.fy, self.cy = self.K[1, 1], self.K[1, 2]
         self.pitch = math.radians(cfg["camera_pitch_deg"])
         self.names = set(cfg["box_class_names"])

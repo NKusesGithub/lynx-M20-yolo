@@ -1,7 +1,8 @@
 # Box distance
 
-`yolo26_live_depthseg.py` shows the distance to each detected box in metres.
-It uses geometry only, no depth model. The code is in `box_distance.py` and
+`live.py` shows the distance to each detected box in metres.
+The main value uses geometry only. A depth model can be added as a third
+value (see below). The code is in `box_distance.py` and
 the settings are under `box_distance:` in `live_config.yaml`.
 
 - **Main value**: `fy * box_height_m / pixel_height`. This is the straight-line
@@ -16,6 +17,11 @@ the settings are under `box_distance:` in `live_config.yaml`.
   - the box is tipped over or partly hidden
   - two boxes were detected as one
   - the camera height or pitch is set wrong
+- **Depth model** (`depth ...`): shown only if `models.depth` is set in the
+  config. It is the median of the depth model's output inside the box mask,
+  multiplied by `depth_scale`. If it differs from the main value by more than
+  `disagree_ratio`, the label also turns red. With a depth model, the window
+  is a 2x2 grid and the fourth tile shows the depth map.
 - **"?" with no number** means the box touches the top or bottom of the frame
   (it may be cut off), or it is shorter than `min_pixel_height`.
 - Values are the median of the last `smooth_n` readings for each track.
@@ -33,7 +39,7 @@ Set `enabled: false` to turn the feature off.
 `box_height_m` affects only the main value. Camera height and pitch affect only
 the cross-check.
 
-`camera_matrix` and `dist_coeffs` are for the front camera at 1280x720
+`camera_matrix` and `dist_coeffs` (under `camera:`) are for the front camera at 1280x720
 (`SM_USB_107X_0.json`). If the stream comes in at another resolution, the
 matrix is scaled automatically. For the rear camera (`video2`), copy the
 values from `SM_USB_107X_2.json`.
@@ -59,7 +65,7 @@ values from `SM_USB_107X_2.json`.
 ```bash
 conda activate camera
 cd droneYolo2026
-PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest test_box_distance.py
+PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest
 ```
 
 `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` stops the ROS pytest plugins from loading.

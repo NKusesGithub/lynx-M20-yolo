@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
 """
-Live YOLO26 on the robot camera's RTSP stream, shown as three tiles in a row:
-tracking, instance segmentation with the distance to each box, and semantic
-segmentation, plus per-model inference times.
+Live YOLO26 on the robot camera's RTSP stream, shown as tiles: tracking,
+instance segmentation with the distance to each box, semantic segmentation
+and (if models.depth is set) monocular depth, plus per-model inference times.
 
-Box distance comes from geometry, not a depth model: the box's known height
-(main estimate) cross-checked against the floor contact point. Settings are
-under box_distance in the config; see BOX_DISTANCE.md.
+With orbbec_view enabled, the depth model gets the frame re-projected into the
+Orbbec DC1 colour camera it was trained on (see orbbec_view.py).
 
-Settings are in live_config.yaml (pick another file with --config).
-Keys: q / Esc quit, + / - change inference fps, s save a snapshot.
+Box distance comes from geometry: the box's known height (main estimate)
+cross-checked against the floor contact point. If a depth model is set, the
+median depth inside each box mask is shown as a third estimate. Settings are
+under box_distance in the config; see docs/BOX_DISTANCE.md.
+
+Settings are in live_config.yaml (pick another file with --config). To test on
+a video or an image instead of the stream, give --source, for example
+--source samples/test1.png.
+Keys: q / Esc quit, + / - change inference fps, s save a snapshot,
+o switch the Orbbec view for the depth model on and off.
 """
 
 import argparse
@@ -25,7 +32,8 @@ import yaml
 from ultralytics import YOLO
 from ultralytics.utils.plotting import colors
 
-from box_distance import BoxDistance
+from box_distance import BoxDistance, TrackSmoother, disagree
+from orbbec_view import OrbbecView
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 STATUS_HEIGHT = 72
@@ -235,12 +243,14 @@ def render_distance_instances(small, dets, masks, scale):
                 label += f" {dist['height']:.2f}m"
                 if dist["floor"] is not None:
                     label += f"  floor {dist['floor']:.2f}m"
-                if dist["uncertain"]:
-                    label += " ?"
-                    c, fg = (0, 0, 255), (255, 255, 255)
+            if dist.get("depth") is not None:
+                label += f"  depth {dist['depth']:.2f}m"
+            if dist["height"] is not None and dist["uncertain"]:
+                label += " ?"
+                c, fg = (0, 0, 255), (255, 255, 255)
         put_text(tile, label, (x1, y1 - 2), color=fg, scale=0.45, bg=c)
     put_text(tile, "Instances + distance (box height)", (0, 18), bg=(60, 60, 60))
-    put_text(tile, "red label / ? = height and floor estimates disagree",
+    put_text(tile, "red label / ? = floor or depth disagrees with height",
              (0, tile.shape[0] - 6), scale=0.4)
     return tile
 
@@ -261,17 +271,38 @@ def render_semantic(small, sem_small, names, lut):
     return tile
 
 
+def render_depth(depth_small, dets, scale, depth_scale, title="Monocular depth"):
+    valid = depth_small > 0
+    lo, hi = np.percentile(depth_small[valid], [2, 98]) if valid.any() else (0.0, 1.0)
+    hi = max(hi, lo + 1e-6)
+    norm = np.clip((depth_small - lo) / (hi - lo), 0, 1)
+    tile = cv2.applyColorMap(((1 - norm) * 255).astype(np.uint8), cv2.COLORMAP_TURBO)
+    tile[~valid] = 0
+    for d in dets:
+        x1, y1, x2, y2 = (d["box"] * scale).astype(int)
+        cv2.rectangle(tile, (x1, y1), (x2, y2), (255, 255, 255), 1)
+    put_text(tile, title, (0, 18), bg=(60, 60, 60))
+    put_text(tile, f"red = near {lo * depth_scale:.1f}m   blue = far {hi * depth_scale:.1f}m",
+             (0, tile.shape[0] - 6), scale=0.45)
+    return tile
+
+
 class LivePipeline:
     def __init__(self, cfg):
         self.cfg = cfg
         m = cfg["models"]
         self.seg = YOLO(m["segment"])
         self.sem = YOLO(m["semantic"]) if m.get("semantic") else None
+        self.depth = YOLO(m["depth"]) if m.get("depth") else None
         self.sem_lut = None
         self.sem_names = None
         bd = cfg.get("box_distance") or {}
         self.box_cfg = bd if bd.get("enabled") else None
         self.box_distance = None  # built on the first frame, once its size is known
+        self.depth_smooth = TrackSmoother(bd.get("smooth_n", 1))
+        self.orbbec_cfg = cfg.get("orbbec_view") or {}
+        self.orbbec_on = bool(self.orbbec_cfg.get("enabled")) and self.depth is not None
+        self.orbbec_view = None  # built on the first frame, once its size is known
         if self.box_cfg and not set(bd["box_class_names"]) & set(self.seg.names.values()):
             print(f"[distance] WARNING: none of {bd['box_class_names']} are classes of "
                   f"{m['segment']} ({list(self.seg.names.values())}); no distances will be shown")
@@ -286,7 +317,7 @@ class LivePipeline:
     def process(self, frame, display_width):
         cfg = self.cfg
         h, w = frame.shape[:2]
-        tw = display_width // 3
+        tw = display_width // (2 if self.depth is not None else 3)
         th = int(round(tw * h / w))
         scale = tw / w
         small = cv2.resize(frame, (tw, th), interpolation=cv2.INTER_AREA)
@@ -299,13 +330,40 @@ class LivePipeline:
         dets = extract_detections(seg_res)
         masks = [object_mask(d, scale, (tw, th)) for d in dets]
 
+        depth_small = None
+        if self.depth is not None:
+            depth_in = frame
+            if self.orbbec_on:
+                if self.orbbec_view is None:
+                    self.orbbec_view = OrbbecView(cfg["camera"], self.orbbec_cfg, (w, h))
+                depth_in = self.orbbec_view.to_orbbec(frame)
+            dres, timings["depth"] = self._timed(lambda: self.depth.predict(
+                depth_in, device=cfg["device"], verbose=False)[0])
+            depth = to_numpy(dres.depth.data).squeeze().astype(np.float32)
+            if self.orbbec_on:
+                depth = cv2.resize(depth, self.orbbec_view.dst_size, interpolation=cv2.INTER_LINEAR)
+                depth_small = self.orbbec_view.to_frame(depth, (tw, th), scale)
+            else:
+                depth_small = cv2.resize(depth, (tw, th), interpolation=cv2.INTER_AREA)
+            for d, m in zip(dets, masks):
+                vals = depth_small[m]
+                vals = vals[vals > 0]
+                d["range"] = float(np.median(vals)) * cfg["depth_scale"] if vals.size else None
+
         if self.box_cfg:
             if self.box_distance is None:
-                self.box_distance = BoxDistance(self.box_cfg, (w, h))
+                self.box_distance = BoxDistance({**self.box_cfg, **cfg["camera"]}, (w, h))
             self.box_distance.update(dets, h)
+            ratio = self.box_cfg["disagree_ratio"]
             for d in dets:
-                if "dist" in d:
-                    d["range"] = d["dist"]["height"]
+                if "dist" not in d:
+                    continue
+                dist = d["dist"]
+                if self.depth is not None:
+                    dist["depth"] = self.depth_smooth.update(d["id"], d.get("range"))
+                    dist["uncertain"] = dist["uncertain"] or disagree(dist["height"], dist["depth"], ratio)
+                d["range"] = dist["height"] if dist["height"] is not None else dist.get("depth")
+            self.depth_smooth.prune([d["id"] for d in dets if d["id"] is not None])
 
         sem_small = None
         if self.sem is not None:
@@ -332,7 +390,12 @@ class LivePipeline:
             render_semantic(small, sem_small, self.sem_names, self.sem_lut)
             if sem_small is not None else placeholder((tw, th), "Semantic segmentation", "disabled in config"),
         ]
-        grid = np.hstack(tiles)
+        if depth_small is not None:
+            title = "Monocular depth (Orbbec view)" if self.orbbec_on else "Monocular depth"
+            tiles.append(render_depth(depth_small, dets, scale, cfg["depth_scale"], title))
+            grid = np.vstack([np.hstack(tiles[:2]), np.hstack(tiles[2:])])
+        else:
+            grid = np.hstack(tiles)
         stats = {"timings": timings, "active": len(dets), "new_ids_60s": len(self.new_ids)}
         return grid, stats
 
@@ -347,9 +410,12 @@ def status_bar(width, lines):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--config", default=str(Path(__file__).with_name("live_config.yaml")))
+    parser.add_argument("--source", help="Stream URL, video or image; overrides source in the config")
     args = parser.parse_args()
 
     cfg = load_config(Path(args.config).resolve())
+    if args.source:
+        cfg["source"] = args.source if "://" in args.source else str(Path(args.source).resolve())
     fps = float(cfg["inference_fps"])
     width = int(cfg["display_width"])
     snap_dir = Path(__file__).parent / "results" / "live"
@@ -384,7 +450,8 @@ def main():
                 ("Inference ms: " + "   ".join(f"{k} {v:.1f}" for k, v in stats["timings"].items())
                  + f"   total {sum(stats['timings'].values()):.1f}") if stats else "Inference ms: -",
                 (f"Tracks: {stats['active']} in view, {stats['new_ids_60s']} new IDs in last 60s   "
-                 if stats else "Tracks: -   ") + "|   keys: q quit   +/- fps   s snapshot",
+                 if stats else "Tracks: -   ") + "|   keys: q quit   +/- fps   s snapshot   o Orbbec view "
+                + ("on" if pipeline.orbbec_on else "off"),
             ]
             view = grid if grid is not None else placeholder(
                 (width, width * 9 // 16), "YOLO26 live", f"Waiting for video: {cfg['source']}")
@@ -396,7 +463,11 @@ def main():
             until_next = (next_time - time.perf_counter()) * 1000
             wait_ms = int(min(max(until_next, 1), 30)) if video_ok else 30
             key = cv2.waitKey(wait_ms) & 0xFF
-            if key in (ord("q"), 27) or cv2.getWindowProperty(window, cv2.WND_PROP_VISIBLE) < 1:
+            try:
+                closed = cv2.getWindowProperty(window, cv2.WND_PROP_VISIBLE) < 1
+            except cv2.error:  # Qt backend raises once the window is closed with X
+                closed = True
+            if key in (ord("q"), 27) or closed:
                 break
             if key in (ord("+"), ord("=")):
                 fps = min(fps + (0.5 if fps < 2 else 1), 30)
@@ -404,6 +475,9 @@ def main():
             elif key == ord("-"):
                 fps = max(fps - (0.5 if fps <= 2 else 1), 0.5)
                 print(f"inference_fps = {fps:g}")
+            elif key == ord("o") and pipeline.depth is not None:
+                pipeline.orbbec_on = not pipeline.orbbec_on
+                print(f"orbbec_view = {'on' if pipeline.orbbec_on else 'off'}")
             elif key == ord("s"):
                 snap_dir.mkdir(parents=True, exist_ok=True)
                 path = snap_dir / time.strftime("snap_%Y%m%d_%H%M%S.jpg")

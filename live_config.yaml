@@ -1,6 +1,7 @@
-# Settings for yolo26_live.py. Relative paths are relative to this file.
+# Settings for live.py. Relative paths are relative to this file.
+# To test on a video or image without editing this file: live.py --source <file>
 
-# Reconfigured for Robot Dog.
+# Front camera of the M20 robot dog.
 source: rtsp://192.168.123.103:8554/video1
 rtsp_transport: tcp        # tcp survives radio packet loss better than udp
 open_timeout_ms: 5000      # how long to wait before retrying a dead stream
@@ -14,9 +15,10 @@ open_timeout_ms: 5000      # how long to wait before retrying a dead stream
 inference_fps: 2
 
 models:
-  segment: weights/best.pt     # detection + instance masks + tracking
-  semantic: weights/yolo26n-sem.pt    # scene classes; null to turn off
-  depth: weights/yolo26n-depth.pt     # monocular range; null to turn off (not used by yolo26_live_depthseg.py)
+  segment: weights/shiwei.pt      # box model: detection + instance masks + tracking
+  semantic: null                  # scene classes, e.g. weights/yolo26n-sem.pt; null = off
+  depth: weights/dog_depth.pt     # depth model trained on the Orbbec; null = off
+                                  # (weights/yolo26n-depth.pt is the untrained original)
 
 imgsz: 640            # inference size for the segment model; raise for small/distant objects
 conf: 0.25            # minimum detection confidence
@@ -29,11 +31,11 @@ device: 0             # 0 = first GPU, or cpu
 # depth_scale = measured / shown.
 depth_scale: 1.0
 
-display_width: 1600   # total window width in pixels (2x2 grid)
+display_width: 1600   # total window width in pixels
 
-# Box distance from geometry (yolo26_live_depthseg.py only; see BOX_DISTANCE.md).
+# Box distance from geometry (see docs/BOX_DISTANCE.md).
 box_distance:
-  enabled: true
+  enabled: false
   box_class_names: ["box", "cardboard box"]   # class names that count as a box
   box_height_m: 0.35          # real box height, measured
   camera_height_m: 0.45       # PLACEHOLDER: measure lens centre to floor
@@ -41,7 +43,22 @@ box_distance:
   smooth_n: 10                # median over the last N estimates per track
   disagree_ratio: 0.20        # mark "?" if height and floor estimates differ by more
   min_pixel_height: 15        # skip boxes shorter than this on screen
-  # Front camera (SM_USB_107X_0.json). For the rear camera use SM_USB_107X_2.json.
+
+# Calibration of the M20 camera in `source`. Used by box_distance and orbbec_view.
+# Front camera (SM_USB_107X_0.json). For the rear camera use SM_USB_107X_2.json.
+camera:
   calib_size: [1280, 720]     # resolution K was calibrated at; K is scaled for other sizes
   camera_matrix: [619.97674, 0.0, 586.32027, 0.0, 625.27679, 339.90312, 0.0, 0.0, 1.0]
   dist_coeffs: [-0.291149, 0.057760, -0.006811, 0.001601, 0.0]
+
+# Show the depth model the frame as the Orbbec DC1 colour camera would see it:
+# undistorted and cropped to the DC1 focal length (about 66 degrees wide instead
+# of 92). A depth model trained on the DC1 then sees objects at the size it
+# learned, which removes most of its distance bias on M20 footage. Only the
+# depth model gets the converted frame. Objects outside the narrower DC1 view
+# get no depth. Press o in the window to switch it on and off.
+orbbec_view:
+  enabled: true
+  # DC1 colour camera at 640x480 (depth_training/dataset/intrinsics.yaml).
+  size: [640, 480]
+  camera_matrix: [489.47235, 0.0, 320.83984, 0.0, 489.47235, 218.48178, 0.0, 0.0, 1.0]

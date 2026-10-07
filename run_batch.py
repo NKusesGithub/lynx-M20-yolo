@@ -1,24 +1,27 @@
 #!/usr/bin/env python3
 """
-Run YOLO26 detection, instance segmentation, semantic segmentation, and monocular
+Run YOLO detection, instance segmentation, semantic segmentation, and monocular
 depth on a video sampled at a fixed fps, and save per-frame results for review.
+
+--family picks the detection and instance-segmentation models: yolo26 (the
+default) or yolo11. YOLO11 has no semantic-segmentation or depth models, so
+those always come from YOLO26. That keeps depth constant, so yolo11 and yolo26
+runs are a fair A/B of the detector alone.
 
 Read this before trusting the labels/numbers:
 
-- Detection and instance-segmentation weights are COCO-trained (80 classes) and
-  have no "wildebeest" class, so each animal gets labeled as the nearest COCO
-  animal class instead (elephant, cow, zebra, horse, bear, ...). Treat the label
-  as "an animal was detected here", not a species ID.
-- The semantic-segmentation weights (yolo26n-sem.pt) are trained on driving-scene
-  classes (road, sidewalk, vegetation, terrain, sky, car, person, ...) with no
-  animal class at all. It's run because it was requested, but it will not identify
-  or separate individual animals -- only rough scene context (water/bank/vegetation).
-- Depth values are monocular relative-depth estimates, not calibrated meters for
-  an open river/savanna scene. Use them to rank which animals are nearer/farther
-  from the camera, not as absolute distances.
-- Instance segmentation (with per-pixel masks) is what actually separates
-  individual animals inside a herd -- that's why it, not the semantic model, is
-  used to count/label individuals and to sample depth per animal below.
+- Detection and instance-segmentation weights are COCO-trained (80 classes), so
+  an object gets labeled as the nearest COCO class (an animal as elephant, cow,
+  zebra, ...). Treat the label as "an object was detected here", not a species ID.
+- Nothing is filtered by class: people, cars and bags are counted alongside
+  animals. The console prints a per-class breakdown of what was found.
+- The semantic-segmentation weights are trained on driving-scene classes (road,
+  sidewalk, vegetation, terrain, sky, car, person, ...). They give only rough
+  scene context, not individual objects.
+- Depth values are monocular relative-depth estimates, not calibrated meters.
+  Use them to rank which objects are nearer/farther, not as absolute distances.
+- Instance segmentation (with per-pixel masks) is what separates individual
+  objects in a crowd, so it is used to count/label objects and to sample depth.
 """
 
 import argparse
@@ -47,10 +50,11 @@ def label_image(img, text):
     return img
 
 
-def build_panel(detect_img, seg_img, sem_img, depth_img, scale=0.5):
+def build_panel(detect_img, seg_img, sem_img, depth_img, family, scale=0.5):
     imgs = [detect_img, seg_img, sem_img, depth_img]
+    tag = family.upper()
     labels = [
-        "Detection (YOLO26)", "Instance Segmentation (YOLO26)",
+        f"Detection ({tag})", f"Instance Segmentation ({tag})",
         "Semantic Segmentation (YOLO26)", "Monocular Depth (YOLO26)",
     ]
     h, w = detect_img.shape[:2]
@@ -61,7 +65,7 @@ def build_panel(detect_img, seg_img, sem_img, depth_img, scale=0.5):
     return np.vstack([top, bottom])
 
 
-def annotate_instances(frame, seg_result, depth_map, writer, frame_idx, timestamp):
+def annotate_instances(frame, seg_result, depth_map, writer, frame_idx, timestamp, family):
     annotated = frame.copy()
     n_instances = 0
     class_counts = Counter()
@@ -108,7 +112,7 @@ def annotate_instances(frame, seg_result, depth_map, writer, frame_idx, timestam
             class_counts[class_name] += 1
 
     cv2.putText(
-        annotated, f"YOLO26  frame {frame_idx}  t={timestamp:.1f}s  objects={n_instances}",
+        annotated, f"{family.upper()}  frame {frame_idx}  t={timestamp:.1f}s  objects={n_instances}",
         (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA,
     )
     return annotated, n_instances, class_counts
@@ -116,20 +120,25 @@ def annotate_instances(frame, seg_result, depth_map, writer, frame_idx, timestam
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--family", choices=["yolo26", "yolo11"], default="yolo26",
+                        help="Model family for detection and instance segmentation")
     parser.add_argument("--video", default="video/wilderbeast.mp4")
-    parser.add_argument("--out-dir", default="results/yolo26")
+    parser.add_argument("--out-dir", help="Default: results/<family>")
     parser.add_argument("--fps", type=float, default=1.0, help="Sampling rate to run inference at")
     parser.add_argument("--conf", type=float, default=0.15, help="Detection/segmentation confidence threshold")
     parser.add_argument("--imgsz", type=int, default=640, help="Inference resolution; the single biggest lever for dense/distant herds")
     parser.add_argument("--max-det", type=int, default=300, help="Cap on detections per frame; raise it for large herds")
     parser.add_argument("--clean", action="store_true", help="Delete existing frames in --out-dir first, so output matches this run only")
-    parser.add_argument("--detect-weights", default="weights/yolo26x.pt")
-    parser.add_argument("--seg-weights", default="weights/yolo26x-seg.pt")
+    parser.add_argument("--detect-weights", help="Default: weights/<family>x.pt")
+    parser.add_argument("--seg-weights", help="Default: weights/<family>x-seg.pt")
+    # YOLO11 has no sem/depth models, so these stay on YOLO26 for both families.
     parser.add_argument("--sem-weights", default="weights/yolo26x-sem.pt")
     parser.add_argument("--depth-weights", default="weights/yolo26x-depth.pt")
     args = parser.parse_args()
+    args.detect_weights = args.detect_weights or f"weights/{args.family}x.pt"
+    args.seg_weights = args.seg_weights or f"weights/{args.family}x-seg.pt"
 
-    out_dir = Path(args.out_dir)
+    out_dir = Path(args.out_dir or f"results/{args.family}")
     annotated_dir = out_dir / "annotated"
     panel_dir = out_dir / "panels"
     annotated_dir.mkdir(parents=True, exist_ok=True)
@@ -196,11 +205,12 @@ def main():
                 depth_map = to_numpy(depth_result.depth.data)
 
                 annotated, n_instances, class_counts = annotate_instances(
-                    frame, seg_result, depth_map, writer, frame_idx, timestamp
+                    frame, seg_result, depth_map, writer, frame_idx, timestamp, args.family
                 )
                 cv2.imwrite(str(annotated_dir / f"frame_{frame_idx:05d}.jpg"), annotated)
 
-                panel = build_panel(detect_result.plot(), seg_result.plot(), sem_result.plot(), depth_result.plot())
+                panel = build_panel(detect_result.plot(), seg_result.plot(), sem_result.plot(), depth_result.plot(),
+                                    args.family)
                 cv2.imwrite(str(panel_dir / f"frame_{frame_idx:05d}_panel.jpg"), panel)
 
                 saved += 1
